@@ -1,0 +1,393 @@
+# 1a. Import Packages
+import pandas as pd
+import numpy as np
+from sklearn import tree, metrics
+from sklearn.model_selection import train_test_split
+import seaborn as sns
+import matplotlib.pyplot as plt
+from io import StringIO  
+from IPython.display import Image  
+import pydotplus
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import make_classification
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import export_graphviz
+
+# 1b. Load data
+
+# Read in the data to a variable called coffeeData
+file_path = r"C:\Users\jwhit\OneDrive\Documents\Data Science Course\Decision Trees\RRDinerCoffeeData.csv"
+coffeeData = pd.read_csv(file_path)
+
+# 1c. Explore the data
+
+# Call head() on your data 
+print("First few rows of the dataset:")
+print(coffeeData.head())
+
+# Call .shape on your data
+print("\nShape of the dataset (rows, columns):")
+print(coffeeData.shape)
+
+# Call info() on your data
+print("\nInformation about the dataset:")
+print(coffeeData.info())
+
+# Call describe() on your data to get the relevant summary statistics for your data 
+print("\nSummary statistics of the dataset:")
+print(coffeeData.describe())
+
+# Check out the names of our data's columns 
+print("Columns before renaming:")
+print(coffeeData.columns)
+
+# Make the relevant name changes to spent_week, spent_month, and SlrAY to spent_last_week, spent_last_month, and salary respectively
+coffeeData.rename(columns={
+    'spent_week': 'spent_last_week',
+    'spent_month': 'spent_last_month',
+    'SlrAY': 'salary'
+}, inplace=True)
+
+# Check out the column names after renaming
+print("\nColumns after renaming:")
+print(coffeeData.columns)
+
+# Let's have a closer look at the gender column. Its values need cleaning.
+# See the gender column's unique values
+print("\nUnique values in the 'gender' column before cleaning:")
+print(coffeeData['Gender'].unique())
+
+# Replace all alternate values for the Female entry with 'Female'
+coffeeData['Gender'].replace(['female', 'F', 'f'], 'Female', inplace=True)
+
+# Check out the unique values for the 'gender' column after replacing Female entries
+print("\nUnique values in the 'gender' column after replacing 'Female':")
+print(coffeeData['Gender'].unique())
+
+# Replace all alternate values for 'Male'
+coffeeData['Gender'].replace(['male', 'M', 'm'], 'Male', inplace=True)
+
+# Let's check the unique values of the column 'gender' after replacing 'Male'
+print("\nUnique values in the 'gender' column after replacing 'Male':")
+print(coffeeData['Gender'].unique())
+
+# Check out the unique values of the column 'Decision'
+print("\nUnique values in the 'Decision' column before cleaning:")
+print(coffeeData['Decision'].unique())
+
+# Replace 1.0 and 0.0 by 'Yes' and 'No' in the Decision column
+coffeeData['Decision'].replace({1.0: 'Yes', 0.0: 'No'}, inplace=True)
+
+# Check that our replacing those values with 'Yes' and 'No' worked, with unique()
+print("\nUnique values in the 'Decision' column after replacing:")
+print(coffeeData['Decision'].unique())
+
+# 1. Drop all null values within the Decision column, and save the result as NoPrediction
+# NoPrediction will contain all known values for the Decision
+NoPrediction = coffeeData.dropna(subset=['Decision'])
+
+# Call describe() on the Decision column of NoPrediction after calling dropna()
+print("\nDescription of the Decision column in NoPrediction after dropping null values:")
+print(NoPrediction['Decision'].describe())
+
+# 2. Visualize the data using scatter and boxplots
+# Make a boxplot where the x axis is Decision, and the y axis is spent_last_week
+plt.figure(figsize=(8,6))
+sns.boxplot(x='Decision', y='spent_last_week', data=NoPrediction)
+plt.title("Boxplot of Spent Last Week by Decision")
+plt.show()
+
+# Corrected scatterplot with the proper column name 'Distance'
+plt.figure(figsize=(8,6))
+sns.scatterplot(x='Distance', y='spent_last_month', hue='Decision', data=NoPrediction)
+plt.title("Scatterplot of Distance vs Spent Last Month by Decision")
+plt.show()
+
+# Q1.) Can you admissibly conclude anything from this boxplot?
+# A1.) The boxplot shows the distribution of spent_last_week for customers who answered 'Yes' or 'No' in the Decision column. If the median (middle line in each box) for customers who chose 'Yes' is significantly higher than those who chose 'No', 
+it might indicate that customers who spent more last week are more likely to buy the Hidden Farm coffee. Outliers in the plot (dots outside the whiskers) represent customers who either spent much more or much less than others.
+# Q2.) Can you admissibly conclude anything from this scatterplot? Remember: we are trying to build a tree to classify unseen examples.
+# A2.) From the scatterplot, we can analyze the relationship between the distance from the store and the amount customers spent last month, differentiated by their Decision. If customers who live closer (lower distance) spent more last month and are more likely 
+to answer 'Yes', this could suggest a trend where proximity to the store influences their decision to purchase the new coffee. If there’s no clear pattern or overlap between 'Yes' and 'No' customers, it may indicate that distance is not a strong factor for 
+predicting purchases.
+# Q3.) Can you admissibly conclude anything from the visualizations?
+# A3.) The boxplot might suggest that customers who spent more in the last week are more likely to buy the coffee. The scatterplot could show a relationship between distance and spending patterns, but we would need to verify with more in-depth analysis 
+(e.g., decision tree feature importance) to confirm.
+
+# 3. Get the subset of coffeeData with null values in the Decision column, and save that subset as Prediction
+Prediction = coffeeData[coffeeData['Decision'].isnull()]
+
+# Call describe() on Prediction
+print("\nDescription of Prediction (rows with null Decision values):")
+print(Prediction.describe())
+
+# 4. Divide the NoPrediction subset into X and y
+# Check the names of the columns of NoPrediction
+print("\nColumns of NoPrediction:")
+print(NoPrediction.columns)
+
+# Let's do our feature selection
+# Make a variable called 'features', and a list containing the strings of every column except "Decision"
+features = [col for col in NoPrediction.columns if col != 'Decision']
+
+# Make an explanatory variable called X, and assign it: NoPrediction[features]
+X = NoPrediction[features]
+
+# Make a dependent variable called y, and assign it: NoPrediction['Decision']
+y = NoPrediction['Decision']
+
+# 5. Create dummy variables to deal with categorical inputs
+# One-hot encode all features in X
+X = pd.get_dummies(X, drop_first=True)
+
+# 6. Further divide those subsets into train and test subsets for X and y respectively: X_train, X_test, y_train, y_test
+# Call train_test_split on X, y. Make the test_size = 0.25, and random_state = 246
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=246)
+print("\nTrain and test sets created successfully!")
+print(f"X_train shape: {X_train.shape}, X_test shape: {X_test.shape}")
+print(f"y_train shape: {y_train.shape}, y_test shape: {y_test.shape}")
+
+# Model 1: Entropy model - no max_depth
+
+# Declare a variable called entr_model and use tree.DecisionTreeClassifier with the 'entropy' criterion
+entr_model = DecisionTreeClassifier(criterion='entropy')
+
+# Call fit() on entr_model using the training data
+entr_model.fit(X_train, y_train)
+
+# Call predict() on entr_model with X_test passed to it, and assign the result to a variable y_pred
+y_pred = entr_model.predict(X_test)
+
+# Call Series on our y_pred variable to format it properly
+y_pred_series = pd.Series(y_pred)
+
+# Check out entr_model
+print("Decision Tree Model with Entropy Criterion:\n", entr_model)
+
+# Now to visualize the tree
+# Export the decision tree as a graphviz dot file
+dot_data = StringIO()
+
+export_graphviz(entr_model, out_file=dot_data,  
+                filled=True, rounded=True,
+                special_characters=True, feature_names=X_train.columns, class_names=entr_model.classes_)
+
+# Use pydotplus to create the image from the dot_data
+graph = pydotplus.graph_from_dot_data(dot_data.getvalue())  
+Image(graph.create_png())
+
+# Display the decision tree as an image
+Image(graph.create_png())
+
+# Run this block for model evaluation metrics 
+print("Model Entropy - no max depth")
+print("Accuracy:", metrics.accuracy_score(y_test,y_pred))
+print("Balanced accuracy:", metrics.balanced_accuracy_score(y_test,y_pred))
+print('Precision score for "Yes":', metrics.precision_score(y_test, y_pred, pos_label="Yes"))
+print('Precision score for "No":', metrics.precision_score(y_test, y_pred, pos_label="No"))
+print('Recall score for "Yes":', metrics.recall_score(y_test, y_pred, pos_label="Yes"))
+print('Recall score for "No":', metrics.recall_score(y_test, y_pred, pos_label="No"))
+
+# Q: What can you infer from these results?
+# A: The evaluation metrics (accuracy, precision, and recall) provide insights into how well the model distinguishes between customers who will or will not buy Hidden Farm coffee. If the accuracy is high and the precision and 
+recall for both "Yes" and "No" are balanced, the model is performing well overall. However, if there's an imbalance between these scores, the model may be biased toward one class or missing potential buyers, suggesting a need for tuning or handling class imbalance.
+
+# Model 2: Gini impurity model - no max_depth
+
+# Declare a variable called gini_model and assign it DecisionTreeClassifier with criterion='gini'
+gini_model = DecisionTreeClassifier(criterion='gini')
+
+# Call fit() on the gini_model using the training data
+gini_model.fit(X_train, y_train)
+
+# Call predict() on the gini_model with X_test passed to it, and assign the result to y_pred
+y_pred = gini_model.predict(X_test)
+
+# Turn y_pred into a series
+y_pred_series = pd.Series(y_pred)
+
+# Check out gini_model
+print("Decision Tree Model with Gini Impurity Criterion:\n", gini_model)
+
+# Now we want to visualize the tree (as before)
+# Export the decision tree as a graphviz dot file
+dot_data = StringIO()
+
+export_graphviz(gini_model, out_file=dot_data,  
+                filled=True, rounded=True,
+                special_characters=True, feature_names=X_train.columns, class_names=gini_model.classes_)
+
+# Use pydotplus to create the image from the dot_data
+graph = pydotplus.graph_from_dot_data(dot_data.getvalue())  
+Image(graph.create_png())
+
+# Display the decision tree as an image
+Image(graph.create_png())
+
+# Model evaluation metrics for Gini impurity model
+print("Model Gini Impurity - no max depth")
+print("Accuracy:", metrics.accuracy_score(y_test, y_pred))
+print("Balanced accuracy:", metrics.balanced_accuracy_score(y_test, y_pred))
+print('Precision score for "Yes":', metrics.precision_score(y_test, y_pred, pos_label="Yes"))
+print('Recall score for "No":', metrics.recall_score(y_test, y_pred, pos_label="No"))
+
+# Q: How do the results here compare to the previous model?
+# A: The Gini impurity model likely produces similar results to the entropy-based model since both are designed to create effective splits in the data. However, due to the slight differences in how they measure "purity," 
+one model might perform marginally better than the other in terms of precision, recall, or accuracy. Comparing the metrics directly will show whether the Gini or entropy model is better suited for this dataset.
+
+# Model 3: Entropy model - max_depth = 3
+
+# Declare a variable called entr_model2 and set criterion to 'entropy' and max_depth to 3
+entr_model2 = DecisionTreeClassifier(criterion='entropy', max_depth=3)
+
+# Call fit() on entr_model2 using the training data
+entr_model2.fit(X_train, y_train)
+
+# Call predict() on the entr_model2 with X_test, and assign the result to y_pred
+y_pred = entr_model2.predict(X_test)
+
+# Turn y_pred into a series
+y_pred_series = pd.Series(y_pred)
+
+# Visualize the tree as before
+# Export the decision tree as a graphviz dot file
+dot_data = StringIO()
+
+export_graphviz(entr_model2, out_file=dot_data,  
+                filled=True, rounded=True,
+                special_characters=True, feature_names=X_train.columns, class_names=entr_model2.classes_)
+
+# Use pydotplus to create the image from the dot_data
+graph = pydotplus.graph_from_dot_data(dot_data.getvalue())  
+Image(graph.create_png())
+
+# Display the decision tree as an image
+Image(graph.create_png())
+
+# Model evaluation metrics for the entropy model with max depth of 3
+print("Model Entropy - max depth 3")
+print("Accuracy:", metrics.accuracy_score(y_test, y_pred))
+print("Balanced accuracy:", metrics.balanced_accuracy_score(y_test, y_pred))
+print('Precision score for "Yes":', metrics.precision_score(y_test, y_pred, pos_label="Yes"))
+print('Recall score for "No":', metrics.recall_score(y_test, y_pred, pos_label="No"))
+
+# Q: So our accuracy decreased, but is this certainly an inferior tree to the max depth original tree we did with Model 1?
+# A: A decrease in accuracy doesn’t necessarily mean the max depth 3 tree is inferior. While the original tree might have overfit the training data (leading to higher accuracy), the depth-limited tree is likely more generalizable 
+and better at avoiding overfitting. 
+A lower but more stable accuracy can indicate better performance on unseen data, making it a more reliable model in practice.
+
+# Model 4: Gini impurity model - max depth = 3
+
+# Declare a variable called gini_model2 and set criterion to 'gini' and max_depth to 3
+gini_model2 = DecisionTreeClassifier(criterion='gini', max_depth=3)
+
+# Call fit() on gini_model2 using the training data
+gini_model2.fit(X_train, y_train)
+
+# Call predict() on the gini_model2 with X_test, and assign the result to y_pred
+y_pred = gini_model2.predict(X_test)
+
+# Turn y_pred into a series
+y_pred_series = pd.Series(y_pred)
+
+# Visualize the tree as before
+dot_data = StringIO()
+
+# Export the decision tree as a graphviz dot file
+export_graphviz(gini_model2, out_file=dot_data,  
+                filled=True, rounded=True,
+                special_characters=True, feature_names=X_train.columns, class_names=gini_model2.classes_)
+
+# Use pydotplus to create the image from the dot_data
+graph = pydotplus.graph_from_dot_data(dot_data.getvalue())  
+Image(graph.create_png())
+
+# Display the decision tree as an image
+Image(graph.create_png())
+
+# Model evaluation metrics for the Gini impurity model with max depth of 3
+print("Gini impurity model - max depth 3")
+print("Accuracy:", metrics.accuracy_score(y_test, y_pred))
+print("Balanced accuracy:", metrics.balanced_accuracy_score(y_test, y_pred))
+print('Precision score for "Yes":', metrics.precision_score(y_test, y_pred, pos_label="Yes"))
+print('Recall score for "No":', metrics.recall_score(y_test, y_pred, pos_label="No"))
+
+# Q: Now this is an elegant tree. Its accuracy might not be the highest, but it's still the best model we've produced so far. Why is that?
+# A: This tree strikes the best balance between complexity and generalizability. While its accuracy may not be the highest, the limited depth prevents overfitting, making it more reliable on unseen data. 
+Its simplicity also makes it easier to interpret, which is valuable for decision-making, even if slight trade-offs in accuracy occur.
+
+# 4a
+# 1. How many customers claimed they would buy Hidden Farm coffee in the survey?
+# Call value_counts() on the 'Decision' column of the original coffeeData
+print("Number of customers who answered 'Yes' or 'No' in the survey:")
+print(coffeeData['Decision'].value_counts())
+
+# 2. Predict how many potential buyers will buy Hidden Farm coffee
+
+# Feature selection: all columns except 'Decision'
+feature_cols = [col for col in coffeeData.columns if col != 'Decision']
+
+# Subset Prediction data (where 'Decision' is null) into new_X
+new_X = Prediction[feature_cols]
+
+# Align the columns of new_X to match those in X_train
+new_X = pd.get_dummies(new_X)
+
+# Add missing columns to new_X with a value of 0
+missing_cols = set(X_train.columns) - set(new_X.columns)
+for col in missing_cols:
+    new_X[col] = 0
+
+# Ensure the columns in the same order as X_train
+new_X = new_X[X_train.columns]
+
+# Use the final model (e.g., gini_model2) to predict the potential buyers
+potential_buyers = gini_model2.predict(new_X)
+
+# Check the results
+print("Predicted potential buyers:", np.unique(potential_buyers, return_counts=True))
+
+# Get the counts of predicted 'Yes' and 'No' responses
+unique, counts = np.unique(potential_buyers, return_counts=True)
+buyers_count = dict(zip(unique, counts))
+
+# Print the number of potential buyers predicted by the model
+print("\nPredicted number of potential buyers:")
+print(buyers_count)
+
+# 3. Calculate the proportion of buyers
+# Total number of surveyed people (with Decision value not null)
+total_surveyed = len(NoPrediction)
+
+# Print the total number of surveyed people
+print("\nTotal number of surveyed people:", total_surveyed)
+
+# Total number of potential buyers
+total_buyers = counts.sum()
+
+# Calculate the percentage of buyers predicted by the model
+percentage_buyers = (buyers_count.get('Yes', 0) / total_surveyed) * 100
+
+# Print the percentage of people predicted to want to buy Hidden Farm coffee
+print(f"\nPercentage of people predicted to buy Hidden Farm coffee: {percentage_buyers:.2f}%")
+
+# 5. Random Forest
+#Specify max_depth and random_state to control the model behavior
+firstRFModel = RandomForestClassifier(max_depth=5, random_state=42)
+
+# Fit the Random Forest model on the training data
+firstRFModel.fit(X_train, y_train)
+
+# Make predictions on the test data
+y_pred = firstRFModel.predict(X_test)
+
+# Print model and predictions
+print("Random Forest Model:\n", firstRFModel)
+print("\nPredictions on the test data:\n", y_pred)
+
+#5c. Revise Conclusion:
+
+# Q: Has your conclusion changed? Or is the result of executing random forest the same as your best model reached by a single decision tree?
+# A: No it has not. While the Random Forest model likely offers higher accuracy, my conclusion remains the same. The Gini impurity decision tree with max depth 3 strikes the best balance between interpretability and performance. 
+While Random Forest improves accuracy, it sacrifices the clarity and simplicity provided by the decision tree, making the latter more suitable for clear decision-making.
+ 
